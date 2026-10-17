@@ -19,6 +19,12 @@ a location that isn't tied to any project path, and provide a way to
 re-associate a backed-up transcript with a folder (including a renamed or
 moved one) so it becomes resumable again.
 
+I also wanted to be able to move a chat from one project folder into the
+one I'm currently working in. Without this, the only way to bring an old
+chat along as context was to convert it to a Markdown file and feed that
+in. Now I can drop the whole session into the current folder and resume
+it with its full history.
+
 These two scripts back up every session transcript to a path-independent
 location as it ends, and let you restore a transcript back into a
 (possibly renamed) folder so it shows up again for `--resume`.
@@ -27,18 +33,33 @@ location as it ends, and let you restore a transcript back into a
 
 - **`backup_session.py`** — registered as a global `SessionEnd` hook. On
   every session end, Claude Code passes it a JSON payload on stdin
-  (`session_id`, `transcript_path`, `cwd`, `exit_reason`). The script copies
-  the transcript into `backups/<session_id>.jsonl` and appends a record to
-  `backups/index.jsonl` so you can look up which session belongs to which
-  project.
-- **`restore_session.py`** — given a `session_id` and a target folder,
-  reproduces Claude Code's path-encoding scheme, copies the backed-up
-  transcript into the matching `~/.claude/projects/<encoded-path>/`
-  directory, and prints the `cd` + `claude --resume` command to run.
+  (`session_id`, `transcript_path`, `cwd`, `exit_reason`). The script reads
+  the chat title out of the transcript and saves the copy as
+  `backups/<chat title> [<session_id>].jsonl`, so you can tell which chat
+  is which just from the file name. If the title changes later, the next
+  backup replaces the old file. It also appends a record (including the
+  title and the folder the session ran in) to `backups/index.jsonl`.
+- **`restore_session.py`** — given a session id (or part of the chat title)
+  and a target folder, reproduces Claude Code's path-encoding scheme, copies
+  the backed-up transcript into the matching
+  `~/.claude/projects/<encoded-path>/` directory, and prints the `cd` +
+  `claude --resume` command to run.
 
-The `backups/` folder (real transcripts and `index.jsonl`) is gitignored —
-it contains conversation history and local file paths, so it never leaves
-your machine.
+Example of what `backups/` looks like:
+
+```
+backups/
+  Add login page and README [3c9e1a42-7b5d-4f08-9e61-2d4a8c0b7f13].jsonl
+  Fix chart colors [8f2b6d10-4c3e-4a97-b1d5-6e0f9a3c2b84].jsonl
+  index.jsonl
+```
+
+## Privacy
+
+The `backups/` folder is gitignored (along with any stray `*.jsonl` file) —
+it contains full conversation history and local file paths, so it stays on
+your machine and is never committed or pushed. Only the scripts and this
+README are in the repository.
 
 ## Setup
 
@@ -67,32 +88,45 @@ From then on, every session gets backed up automatically when it ends.
 
 ## Restoring a session
 
-```
-python restore_session.py <session-id> [target_dir]
-```
-
-If `target_dir` is omitted, the current directory is used.
-
-### Example (synthetic data)
-
-Say `backups/index.jsonl` contains:
-
-```json
-{"session_id": "demo-1234", "cwd": "C:\\Users\\alice\\projects\\myapp", "transcript_path": "C:\\Users\\alice\\.claude\\projects\\c--Users-alice-projects-myapp\\demo-1234.jsonl", "exit_reason": "clear", "backed_up_at": "2026-01-15T10:32:00+00:00"}
-```
-
-The project folder `myapp` later gets renamed to `myapp-v2`. To bring the
-session back:
+Run this from the `Claude Session Backup` folder:
 
 ```
-$ python restore_session.py demo-1234 "C:\Users\alice\projects\myapp-v2"
-Restored session demo-1234 into: C:\Users\alice\.claude\projects\c--Users-alice-projects-myapp-v2\demo-1234.jsonl
-Computed project key: c--Users-alice-projects-myapp-v2
-Now run: cd "C:\Users\alice\projects\myapp-v2" && claude --resume
+python restore_session.py <session-id> "<target folder>"
 ```
 
-`myapp-v2` now shows the session in `claude --resume` even though it was
-originally recorded under the old folder name.
+- `<session-id>` is the id in square brackets at the end of the backup's
+  file name. Part of the chat title works too (e.g. `"login page"`) as
+  long as it only matches one backup.
+- `"<target folder>"` is the project folder you want the chat to show up
+  in. Keep the quotes. If you leave it out, the current directory is used.
+
+### Example
+
+Say you had a chat called **Add login page and README** that started in a
+`recipe-app` project. You're now working in a `weather-dashboard` project
+and want that chat there. Its backup is:
+
+```
+backups/Add login page and README [3c9e1a42-7b5d-4f08-9e61-2d4a8c0b7f13].jsonl
+```
+
+So you run:
+
+```
+python restore_session.py 3c9e1a42-7b5d-4f08-9e61-2d4a8c0b7f13 "C:\Users\alex\weather-dashboard"
+```
+
+Output:
+
+```
+Found backup: Add login page and README [3c9e1a42-7b5d-4f08-9e61-2d4a8c0b7f13].jsonl
+Restored session 3c9e1a42-7b5d-4f08-9e61-2d4a8c0b7f13 into: C:\Users\alex\.claude\projects\c--Users-alex-weather-dashboard\3c9e1a42-7b5d-4f08-9e61-2d4a8c0b7f13.jsonl
+Computed project key: c--Users-alex-weather-dashboard
+Now run: cd "C:\Users\alex\weather-dashboard" && claude --resume
+```
+
+After that, the chat shows up in the session list for `weather-dashboard`
+and you can pick up where you left off.
 
 ## Caveats
 

@@ -1,3 +1,5 @@
+# Backed-up chat transcripts are private: never commit them.
 backups/
+*.jsonl
 __pycache__/
 *.pyc
